@@ -101,33 +101,31 @@ app.post('/api/register', async (req, res, next) => {
 
 app.post('/api/login', async (req, res, next) => {
     try {
-        const { email,number,password } = req.body;
-        const user = await Users.findOne({ email });
-        const  userNumber =await Users.findOne({number})
-        const authOption = email || userNumber
-        if (!authOption|| !password) {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
             res.status(400).send('Please fill all required fields');
         } else {
-    
-            if (!authOption) {
-                res.status(400).send(`${user? "Mail is incorrect" : "Number is incorrect"}`);
+            const user = await Users.findOne({ email });
+            if (!user) {
+                res.status(400).send('User email or password is incorrect');
             } else {
-                const validateUser = await bcryptjs.compare(password, authOption.password);
+                const validateUser = await bcryptjs.compare(password, user.password);
                 if (!validateUser) {
-                    res.status(400).send('Password is incorrect');
+                    res.status(400).send('User email or password is incorrect');
                 } else {
                     const payload = {
-                        userId: authOption._id,
-                        email: authOption.email
+                        userId: user._id,
+                        email: user.email
                     }
                     const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY || 'THIS_IS_A_JWT_SECRET_KEY';
 
                     jwt.sign(payload, JWT_SECRET_KEY, { expiresIn: 84600 }, async (err, token) => {
-                        await Users.updateOne({ _id: authOption._id }, {
+                        await Users.updateOne({ _id: user._id }, {
                             $set: { token }
                         })
                         user.save();
-                        return res.status(200).json({ user: { id: authOption._id, email: authOption.email,Number:authOption.number, fullName: authOption.fullName }, token: token })
+                        return res.status(200).json({ user: { id: user._id, email: user.email, fullName: user.fullName }, token: token })
                     })
                 }
             }
