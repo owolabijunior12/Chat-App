@@ -13,8 +13,6 @@ const io = require('socket.io')(8080, {
         origin: 'http://localhost:3000',
     }
 });
-
-
 // app Use
 const app = express();
 app.use(express.json());
@@ -26,7 +24,7 @@ const port = process.env.PORT || 8000;
 // Socket.io
 let users = [];
 io.on('connection', socket => {
-    console.log('User connected', socket.id);
+    
     socket.on('addUser', userId => {
         const isUserExist = users.find(user => user.userId === userId);
         if (!isUserExist) {
@@ -34,6 +32,8 @@ io.on('connection', socket => {
             users.push(user);
             io.emit('getUsers', users);
         }
+        console.log('User connected' ,socket.id);
+
     });
 
     socket.on('sendMessage', async ({ senderId, receiverId, message, conversationId }) => {
@@ -74,16 +74,17 @@ app.get('/', (req, res) => {
 
 app.post('/api/register', async (req, res, next) => {
     try {
-        const { fullName, email, password } = req.body;
+        const { fullName, email, password,number,imageURl,bio } = req.body;
 
-        if (!fullName || !email || !password) {
+        if (!fullName || !email || !password|| !number || !imageURl) {
             res.status(400).send('Please fill all required fields');
         } else {
             const isAlreadyExist = await Users.findOne({ email });
-            if (isAlreadyExist) {
-                res.status(400).send('User already exists');
+            const isNumberExist = await Users.findOne({ number});
+            if (isAlreadyExist && isNumberExist) {
+                res.status(400).send(`${isAlreadyExist? "Mail is used for another account " : "Number is already used for another account"}`);
             } else {
-                const newUser = new Users({ fullName, email });
+                const newUser = new Users({ fullName, email,number });
                 bcryptjs.hash(password, 10, (err, hashedPassword) => {
                     newUser.set('password', hashedPassword);
                     newUser.save();
@@ -100,31 +101,33 @@ app.post('/api/register', async (req, res, next) => {
 
 app.post('/api/login', async (req, res, next) => {
     try {
-        const { email, password } = req.body;
-
-        if (!email || !password) {
+        const { email,number,password } = req.body;
+        const user = await Users.findOne({ email });
+        const  userNumber =await Users.findOne({number})
+        const authOption = email || userNumber
+        if (!authOption|| !password) {
             res.status(400).send('Please fill all required fields');
         } else {
-            const user = await Users.findOne({ email });
-            if (!user) {
-                res.status(400).send('User email or password is incorrect');
+    
+            if (!authOption) {
+                res.status(400).send(`${user? "Mail is incorrect" : "Number is incorrect"}`);
             } else {
-                const validateUser = await bcryptjs.compare(password, user.password);
+                const validateUser = await bcryptjs.compare(password, authOption.password);
                 if (!validateUser) {
-                    res.status(400).send('User email or password is incorrect');
+                    res.status(400).send('Password is incorrect');
                 } else {
                     const payload = {
-                        userId: user._id,
-                        email: user.email
+                        userId: authOption._id,
+                        email: authOption.email
                     }
                     const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY || 'THIS_IS_A_JWT_SECRET_KEY';
 
                     jwt.sign(payload, JWT_SECRET_KEY, { expiresIn: 84600 }, async (err, token) => {
-                        await Users.updateOne({ _id: user._id }, {
+                        await Users.updateOne({ _id: authOption._id }, {
                             $set: { token }
                         })
                         user.save();
-                        return res.status(200).json({ user: { id: user._id, email: user.email, fullName: user.fullName }, token: token })
+                        return res.status(200).json({ user: { id: authOption._id, email: authOption.email,Number:authOption.number, fullName: authOption.fullName }, token: token })
                     })
                 }
             }
@@ -181,7 +184,19 @@ app.post('/api/message', async (req, res) => {
         console.log(error, 'Error')
     }
 })
-
+app.delete("/api/message/converation/delete/:id", async (res , req)=>{
+    try {
+        const conversation = Conversations.findOne(req.params.id)
+        const  message = Messages.findOne(conversation._id)
+        if (conversation && message){
+             await  conversation.deleteOne();
+             await  message.deleteOne();
+        };
+        console.log("Chat has been deleted ")
+    } catch (error) {
+        console.log(error);
+    }
+})
 app.get('/api/message/:conversationId', async (req, res) => {
     try {
         const checkMessages = async (conversationId) => {
